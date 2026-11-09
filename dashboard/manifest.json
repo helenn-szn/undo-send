@@ -1,0 +1,10 @@
+{
+  "name": "undo-send",
+  "label": "Undo Send",
+  "description": "Outward-facing actions waiting in the grace window, and what happened to recent ones",
+  "icon": "Undo2",
+  "version": "0.2.0",
+  "tab": { "path": "/undo-send", "position": "end" },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}

@@ -1,0 +1,46 @@
+name: undo-send
+version: 0.3.0
+manifest_version: 2
+api_version: 1
+requires_hermes: ">=0.23.0"
+description: >-
+  Undo Send for your agent. Outward-facing actions (messages, webhook posts,
+  connector writes, git pushes) wait in a short grace window before they run,
+  so you can cancel them from the Desktop status bar, with /unsend, or by
+  replying "undo" in chat.
+author: undo-send contributors
+license: MIT
+tags: [safety, messaging, undo, human-in-the-loop]
+
+provides_tools: []
+provides_hooks:
+  - pre_gateway_dispatch
+provides_middleware:
+  - tool_execution
+
+config_schema:
+  window_seconds:
+    type: int
+    default: 20
+    label: Grace window (seconds)
+    description: How long an outward-facing action waits before it runs.
+  hold_mcp_writes:
+    type: bool
+    default: true
+    label: Hold MCP write tools
+    description: Hold connector/MCP tools whose names look like they send, create, update or delete.
+  hold_terminal_publishes:
+    type: bool
+    default: true
+    label: Hold publishing shell commands
+    description: Hold terminal commands such as git push, gh pr create and npm publish.
+  always_hold:
+    type: list
+    default: []
+    label: Always hold these tools
+    description: Tool names that are always held, in addition to the built-in rules.
+  never_hold:
+    type: list
+    default: []
+    label: Never hold these tools
+    description: Tool names that always run immediately.
