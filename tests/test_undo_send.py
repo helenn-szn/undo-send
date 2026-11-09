@@ -294,3 +294,36 @@ def test_curl_env_var_target():
     assert summarize("terminal", {"command": cmd}, "HTTP write") == "POST to team discord: I quit 👋"
     ps = """curl.exe -X POST -d '{"content":"hi"}' $env:TEAM_DISCORD"""
     assert summarize("terminal", {"command": ps}, "HTTP write") == "POST to team discord: hi"
+
+
+@pytest.mark.parametrize("cmd,hold", [
+    ('hermes send --to telegram "I quit"', True),
+    ("hermes send -t slack:#eng 'Ship it'", True),
+    ('echo report | hermes send --to discord', True),
+    ("hermes send --list telegram", False),
+    ("hermes sessions list", False),
+    ('imsg send --to +15551234 "hi"', True),
+])
+def test_hermes_send_is_held(cmd, hold):
+    assert classify("terminal", {"command": cmd}, Rules()).hold is hold
+
+
+@pytest.mark.parametrize("cmd,want", [
+    ('hermes send --to telegram "I quit, goodbye everyone 👋"', "message to telegram: I quit, goodbye everyone 👋"),
+    ("hermes send -t=slack:#eng -s Update 'Deploy finished'", "message to slack:#eng: Deploy finished"),
+    ('hermes send "hello"', "message: hello"),
+])
+def test_hermes_send_summary(cmd, want):
+    assert summarize("terminal", {"command": cmd}, "message") == want
+
+
+@pytest.mark.parametrize("tool,hold,label", [
+    ("connectors__slack__post_message", True, "slack: post message"),
+    ("connectors__gmail__send_email", True, "gmail: send email"),
+    ("connectors__linear__list_issues", False, ""),
+    ("connectors__execute", False, ""),
+    ("mcp__linear__create_issue", True, "linear: create issue"),
+])
+def test_connector_tools(tool, hold, label):
+    d = classify(tool, {}, Rules())
+    assert d.hold is hold and d.label == label

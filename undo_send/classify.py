@@ -40,6 +40,10 @@ _PUBLISH_PATTERNS = [
     (re.compile(r"\bnpm\s+publish\b"), "npm publish"),
     (re.compile(r"\btwine\s+upload\b"), "PyPI upload"),
     (re.compile(r"\bcurl\b.*\s-X\s*(POST|PUT|PATCH|DELETE)\b", re.I), "HTTP write"),
+    # Hermes' own way of messaging people: `hermes send --to telegram "..."`
+    # (listing targets with -l/--list sends nothing, so it is not held).
+    (re.compile(r"\bhermes(?:\.exe)?\s+send\b(?!.*\s(?:-l|--list)\b)"), "message"),
+    (re.compile(r"\bimsg\s+send\b"), "iMessage"),
 ]
 
 TERMINAL_TOOLS = {"terminal", "shell_exec", "bash"}
@@ -63,12 +67,24 @@ def _tokens(name: str) -> list[str]:
     return [t.lower() for t in _TOKEN_SPLIT.split(name) if t]
 
 
+# MCP tools are mcp__<server>__<tool>; connector tools are
+# connectors__<connector>__<tool>. Judge the tool part.
+_APP_PREFIXES = ("mcp__", "connectors__")
+_NOT_A_TOOL = {"connectors__execute"}  # Hermes' batch planner sentinel
+
+
+def _split_app_tool(tool_name: str) -> tuple[str, str] | None:
+    if not tool_name.startswith(_APP_PREFIXES) or tool_name in _NOT_A_TOOL:
+        return None
+    parts = tool_name.split("__", 2)
+    if len(parts) != 3 or not parts[1] or not parts[2]:
+        return None
+    return parts[1], parts[2]
+
+
 def _action_part(tool_name: str) -> str:
-    # MCP tools are named mcp__<server>__<tool>; judge the tool part.
-    if tool_name.startswith("mcp__"):
-        parts = tool_name.split("__")
-        return parts[-1] if len(parts) >= 3 else tool_name
-    return tool_name
+    split = _split_app_tool(tool_name)
+    return split[1] if split else tool_name
 
 
 def classify(tool_name: str, args: dict | None, rules: Rules) -> Decision:
@@ -89,12 +105,14 @@ def classify(tool_name: str, args: dict | None, rules: Rules) -> Decision:
                 return Decision(True, label)
         return Decision(False)
 
-    if tool_name.startswith("mcp__") and rules.hold_mcp_writes:
-        toks = _tokens(_action_part(tool_name))
+    split = _split_app_tool(tool_name)
+    if split and rules.hold_mcp_writes:
+        app, action = split
+        toks = _tokens(action)
         if toks and toks[0] in _READ_VERBS:
             return Decision(False)
         if any(t in _WRITE_VERBS for t in toks):
-            return Decision(True, tool_name)
+            return Decision(True, f"{app}: {action.replace('_', ' ')}")
 
     return Decision(False)
 
@@ -138,12 +156,43 @@ def _curl_summary(cmd: str) -> str | None:
     return f"{head}: {msg}"
 
 
+_SEND_VALUE_FLAGS = {"-t", "--to", "-f", "--file", "-s", "--subject", "--mention"}
+
+
+def _hermes_send_summary(cmd: str) -> str | None:
+    m = re.search(r"\bhermes(?:\.exe)?\s+send\b(.*)", cmd, re.S)
+    if not m:
+        return None
+    import shlex
+    try:
+        toks = shlex.split(m.group(1))
+    except ValueError:
+        toks = m.group(1).split()
+    target, text, i = "", "", 0
+    while i < len(toks):
+        t = toks[i]
+        if t in ("|", "&&", ";", "||"):
+            break
+        key, _, inline = t.partition("=")
+        if key in _SEND_VALUE_FLAGS:
+            val = inline or (toks[i + 1] if i + 1 < len(toks) else "")
+            if key in ("-t", "--to"):
+                target = val
+            i += 1 if inline else 2
+            continue
+        if not t.startswith("-") and not text:
+            text = t
+        i += 1
+    head = f"message to {target}" if target else "message"
+    return f"{head}: {text}" if text else head
+
+
 def summarize(tool_name: str, args: dict | None, label: str) -> str:
-    """One short line for the countdown, e.g. 'send_message to #eng: Ship it'."""
+    """One short line for the countdown, e.g. 'message to telegram: Ship it'."""
     args = args or {}
     cmd = str(args.get("command") or args.get("cmd") or "")
     if cmd:
-        nice = _curl_summary(cmd)
+        nice = _hermes_send_summary(cmd) or _curl_summary(cmd)
         if nice:
             nice = " ".join(_redact(nice).split())
             return nice if len(nice) <= 90 else nice[:87] + "..."

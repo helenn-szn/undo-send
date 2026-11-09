@@ -1,11 +1,11 @@
 name: undo-send
-version: 0.3.0
+version: 0.3.1
 manifest_version: 2
 api_version: 1
 requires_hermes: ">=0.23.0"
 description: >-
-  Undo Send for your agent. Outward-facing actions (messages, webhook posts,
-  connector writes, git pushes) wait in a short grace window before they run,
+  Undo Send for your agent. Outward-facing actions (hermes send messages,
+  webhook posts, app connector writes, git pushes) wait in a short grace window before they run,
   so you can cancel them from the Desktop status bar, with /unsend, or by
   replying "undo" in chat.
 author: undo-send contributors

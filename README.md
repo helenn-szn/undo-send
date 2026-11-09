@@ -8,7 +8,7 @@ taken back (post to a team chat, call a webhook, write to a connected app,
 window and it never happens. Leave it, and it runs normally.
 
 ```
-⏳ 14s  POST to team discord: I'm quitting, goodbye everyone 👋   [Undo] [Send now]
+⏳ 14s  message to telegram: I'm quitting, goodbye everyone 👋   [Undo] [Send now]
 ```
 
 ## Why a plugin
@@ -26,14 +26,15 @@ fails open: if undo-send itself errors, the tool call runs as it would have.
 
 | Kind | Examples |
 |---|---|
-| Messaging and email tools | `send_message`, `send_email` |
-| Connector (MCP) writes | `mcp__slack__post_message`, `mcp__linear__create_issue`, `mcp__gcal__deleteEvent` |
+| Messages to people | `hermes send --to telegram "…"` (Telegram, Slack, Discord, Signal, SMS…), `imsg send`, email/message tools |
+| App connector and MCP writes | `connectors__slack__post_message`, `connectors__gmail__send_email`, `mcp__linear__create_issue` |
 | Publishing shell commands | `git push`, `gh pr create`, `npm publish`, `curl -X POST/PUT/PATCH/DELETE` |
 
-Reads (`list_*`, `get_*`, `search_*`, `read_file`, `web_search`) are never
-held. Tune it with `always_hold` / `never_hold`.
+Reads (`list_*`, `get_*`, `search_*`, `read_file`, `web_search`,
+`hermes send --list`) are never held. Tune it with `always_hold` / `never_hold`.
 
-The countdown shows a readable summary (`POST to discord.com: <message>`),
+The countdown shows a readable summary (`message to telegram: <text>`,
+`slack: post message`, `POST to discord.com: <message>`),
 never full URLs, so webhook tokens and credentials in URLs stay off screen.
 
 ## Ways to undo
