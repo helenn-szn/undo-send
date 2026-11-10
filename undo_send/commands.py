@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+from .origin import chat_of, sender_of
 from .store import Store
 
 UNDO_WORDS = {"undo", "unsend", "/unsend", "stop sending", "cancel send", "don't send", "dont send"}
@@ -67,33 +68,25 @@ def listing(store: Store, raw: str = "", holder=None) -> str:
     return "Waiting to send:\n" + "\n".join(_fmt(r) for r in rows)
 
 
-def _authorized(gateway, source) -> bool:
-    """pre_gateway_dispatch runs before Hermes' own sender check, so check it
-    here. Fail closed: if we can't tell, the message is left alone."""
-    check = getattr(gateway, "_is_user_authorized", None)
-    if source is None or not callable(check):
-        return False
-    try:
-        return bool(check(source))
-    except Exception:
-        return False
-
-
-def gateway_hook(store: Store):
-    """pre_gateway_dispatch: a bare 'undo' from an authorized user in
-    Telegram/WhatsApp/etc. cancels the newest waiting action, even while the
-    agent is busy holding it, and replies with what happened."""
+def gateway_hook(store: Store, senders=lambda: set()):
+    """pre_gateway_dispatch: a bare 'undo' from an owner listed in the undo_senders setting
+    cancels the newest action held from that same chat, even while the agent is busy, and
+    replies with what happened. Chat undo is off until undo_senders is set."""
 
     async def hook(event=None, gateway=None, **_):
         text = str(getattr(event, "text", "") or "").strip().lower()
-        if text not in UNDO_WORDS or not store.pending():
+        if text not in UNDO_WORDS:
             return None  # normal message: dispatch as usual
         source = getattr(event, "source", None)
-        if not _authorized(gateway, source):
-            return None  # let Hermes' own auth handle (and refuse) it
-        reply = undo(store, "last")
+        chat = chat_of(source)
+        if not chat or sender_of(source) not in senders():
+            return None  # not an owner (or chat undo is off): leave it to Hermes
+        row = store.latest_pending(origin=chat)
+        if row is None:
+            return None  # nothing held from this chat: let "undo" through as a normal message
+        reply = undo(store, row["id"])
         try:
-            adapter = (getattr(gateway, "adapters", None) or {}).get(source.platform)
+            adapter = (getattr(gateway, "adapters", None) or {}).get(getattr(source, "platform", None))
             if adapter is not None:
                 await adapter.send(source.chat_id, f"↩ {reply}",
                                    reply_to=getattr(event, "message_id", None))
@@ -102,3 +95,11 @@ def gateway_hook(store: Store):
         return {"action": "skip", "reason": "undo-send cancelled a held action"}
 
     return hook
+
+
+def whoami(source) -> str:
+    me = sender_of(source)
+    if not me:
+        return "Run /undo-send whoami from the chat app (Telegram, WhatsApp…) you want to undo from."
+    return (f"You are {me}. To allow undo from this chat app, run:\n"
+            f"hermes config set plugins.entries.undo-send.settings.undo_senders \"{me}\"")

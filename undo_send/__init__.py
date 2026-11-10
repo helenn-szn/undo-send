@@ -7,6 +7,7 @@ import logging
 from . import commands
 from .classify import Rules
 from .hold import Holder
+from .origin import parse_senders
 from .store import Store
 
 logger = logging.getLogger(__name__)
@@ -45,10 +46,20 @@ def register(ctx):
         "sendnow", handler("sendnow", lambda raw: commands.send_now(store, raw)),
         description="Skip the grace window and send the waiting action now",
     )
+    def undo_send_cmd(*a, **kw):
+        raw = commands.parse_arg("undo-send", a, kw)
+        holder.seen.append(f"/undo-send called with a={a!r} kw={sorted(kw)} -> {raw!r}")
+        if raw.strip().lower() == "whoami":
+            return commands.whoami(kw.get("source"))
+        return commands.listing(store, raw, holder)
+
     ctx.register_command(
-        "undo-send", handler("undo-send", lambda raw: commands.listing(store, raw, holder)),
-        description="List actions waiting to send and recent outcomes (/undo-send debug)",
+        "undo-send", undo_send_cmd,
+        description="List waiting/recent actions (/undo-send whoami shows your ID for chat undo)",
     )
 
-    ctx.register_hook("pre_gateway_dispatch", commands.gateway_hook(store))
+    def senders() -> set[str]:
+        return parse_senders(ctx.get_config("undo_senders", default=[]))
+
+    ctx.register_hook("pre_gateway_dispatch", commands.gateway_hook(store, senders))
     logger.debug("undo-send registered (store: %s)", store.path)

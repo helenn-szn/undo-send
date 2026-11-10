@@ -43,10 +43,22 @@ never full URLs, so webhook tokens and credentials in URLs stay off screen.
   status bar with **Undo** and **Send now**, plus a toast. An **Undo Send**
   dashboard page lists recent actions and how they ended.
 - **Telegram, WhatsApp and other chats:** reply **undo** (or **unsend**) while
-  it's waiting. Only users Hermes already authorizes can do this; anyone else's
-  "undo" is ignored. You get a confirmation reply. (With
-  `plugins.isolation: host`, the hook can't see the live gateway to check the
-  sender, so the chat reply stays off and the other ways still work.)
+  it's waiting, and the newest action held **from that same chat** is cancelled,
+  with a confirmation reply. Only the owners you list can do this, and it's **off
+  until you set it up**:
+  1. In the chat app, send `/undo-send whoami`. It replies with your ID, e.g.
+     `telegram:123456789`.
+  2. Allow it: `hermes config set plugins.entries.undo-send.settings.undo_senders "telegram:123456789"`
+     (several: comma-separated), then `hermes gateway restart`.
+
+  Anyone else's "undo" is passed to Hermes as a normal message, and an "undo" never
+  touches actions held from another chat, Desktop or the CLI.
+
+  *Note:* in Hermes builds before core PR
+  [#151113](https://github.com/NousResearch/hermes-agent/pull/151113), an "undo"
+  sent to the same chat whose turn is holding the action is queued as a busy-chat
+  message and only arrives after the hold ends. Until that lands, use the Desktop
+  chip, or reply from another chat app you've allowed.
 - **Commands:** `/unsend` (or `/unsend <id>`, `/unsend all`), `/sendnow`, and
   `/undo-send` to list what's waiting and what happened. Hermes' own `/undo`
   still removes chat turns. Note that the CLI and chats queue slash commands
@@ -66,6 +78,7 @@ Plugins in Desktop:
 | `hold_mcp_writes` | true | Hold connector write tools |
 | `hold_terminal_publishes` | true | Hold publishing shell commands |
 | `always_hold` / `never_hold` | [] | Per-tool overrides |
+| `undo_senders` | [] | Who can reply "undo" in chat, as `platform:user_id`. Empty = chat undo off |
 
 ```
 hermes config set plugins.entries.undo-send.settings.window_seconds 15
@@ -93,7 +106,9 @@ plugins* from the command palette (Ctrl/⌘+K).
   SQLite file at `HERMES_HOME/plugin-data/undo-send/pending.db`, so the agent,
   the gateway and Desktop all see and can cancel the same actions.
 - **Reads incoming chat text** in the gateway only to recognise a bare "undo"
-  from an authorized user; every other message passes through untouched.
+  from a sender listed in `undo_senders` (empty by default, so off); every other
+  message passes through untouched. Held actions record the chat they came from
+  (`platform:chat_id`) so an "undo" only cancels actions from its own chat.
 - Runs no shell commands of its own and no background process.
 
 ## Development

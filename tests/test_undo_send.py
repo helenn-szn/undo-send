@@ -148,13 +148,13 @@ def test_classifier_error_fails_open(store):
 
 
 class _Src:
-    platform = "telegram"
-    chat_id = "42"
+    def __init__(self, user="777", chat="42", platform="telegram"):
+        self.platform, self.chat_id, self.user_id = platform, chat, user
 
 
 class _Event:
-    def __init__(self, text):
-        self.text, self.source, self.message_id = text, _Src(), "m1"
+    def __init__(self, text, **src):
+        self.text, self.source, self.message_id = text, _Src(**src), "m1"
 
 
 class _Adapter:
@@ -166,11 +166,8 @@ class _Adapter:
 
 
 class _Gateway:
-    def __init__(self, allowed=True):
-        self.allowed, self.adapters = allowed, {"telegram": _Adapter()}
-
-    def _is_user_authorized(self, source):
-        return self.allowed
+    def __init__(self):
+        self.adapters = {"telegram": _Adapter()}
 
 
 def _run(coro):
@@ -178,11 +175,14 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+OWNER = {"telegram:777"}
+
+
 def test_gateway_undo_reply(store):
-    hook = commands.gateway_hook(store)
+    hook = commands.gateway_hook(store, lambda: OWNER)
     gw = _Gateway()
     assert _run(hook(event=_Event("undo"), gateway=gw)) is None  # nothing pending
-    store.add("send_message", "send_message to boss: hi", 20)
+    store.add("send_message", "send_message to boss: hi", 20, origin="telegram:42")
     assert _run(hook(event=_Event("hello there"), gateway=gw)) is None
     res = _run(hook(event=_Event(" Undo "), gateway=gw))
     assert res["action"] == "skip"
@@ -191,12 +191,66 @@ def test_gateway_undo_reply(store):
     assert chat == "42" and "Undone" in msg and reply_to == "m1"
 
 
+def test_chat_undo_is_off_until_owner_is_set(store):
+    store.add("send_message", "x", 20, origin="telegram:42")
+    assert _run(commands.gateway_hook(store)(event=_Event("undo"), gateway=_Gateway())) is None
+    assert store.pending(), "empty undo_senders means chat undo is off"
+
+
 def test_gateway_undo_refuses_strangers(store):
-    hook = commands.gateway_hook(store)
-    store.add("send_message", "send_message to boss: hi", 20)
-    assert _run(hook(event=_Event("undo"), gateway=_Gateway(allowed=False))) is None
-    assert _run(hook(event=_Event("undo"), gateway=object())) is None  # can't check: fail closed
+    hook = commands.gateway_hook(store, lambda: OWNER)
+    store.add("send_message", "send_message to boss: hi", 20, origin="telegram:42")
+    assert _run(hook(event=_Event("undo", user="999"), gateway=_Gateway())) is None
+    assert _run(hook(event=_Event("undo", platform="discord"), gateway=_Gateway())) is None
     assert store.pending(), "a stranger must not cancel your actions"
+
+
+def test_gateway_undo_only_touches_own_chat(store):
+    hook = commands.gateway_hook(store, lambda: OWNER)
+    other = store.add("send_message", "from another chat", 20, origin="telegram:55")
+    desktop = store.add("send_message", "from desktop", 20, origin="")
+    assert _run(hook(event=_Event("undo"), gateway=_Gateway())) is None
+    mine = store.add("send_message", "from this chat", 20, origin="telegram:42")
+    assert _run(hook(event=_Event("undo"), gateway=_Gateway()))["action"] == "skip"
+    assert store.get(mine)["status"] == "cancelled"
+    assert store.get(other)["status"] == "pending" and store.get(desktop)["status"] == "pending"
+
+
+def test_held_action_records_its_chat(store, monkeypatch):
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "telegram")
+    monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "42")
+    call(make_holder(store, window=1), "send_message", {"text": "x"})
+    assert store.recent()[0]["origin"] == "telegram:42"
+
+
+@pytest.mark.parametrize("value,want", [
+    (["telegram:777", " WhatsApp:+234 "], {"telegram:777", "whatsapp:+234"}),
+    ("telegram:777, discord:1", {"telegram:777", "discord:1"}),
+    ([], set()), ("", set()), (None, set()), (["nocolon"], set()),
+])
+def test_parse_senders(value, want):
+    from undo_send.origin import parse_senders
+    assert parse_senders(value) == want
+
+
+def test_whoami():
+    assert "telegram:777" in commands.whoami(_Src()) and "undo_senders" in commands.whoami(_Src())
+    assert "from the chat app" in commands.whoami(None)
+
+
+def test_old_database_gets_origin_column(tmp_path):
+    import sqlite3
+    db = tmp_path / "old.db"
+    c = sqlite3.connect(db)
+    c.execute("CREATE TABLE actions (id TEXT PRIMARY KEY, tool TEXT NOT NULL, summary TEXT NOT NULL, "
+              "session_id TEXT, created REAL NOT NULL, due REAL NOT NULL, status TEXT NOT NULL, detail TEXT)")
+    c.execute("INSERT INTO actions VALUES ('a1','t','s','',1,2,'pending',NULL)")
+    c.commit()
+    c.close()
+    s = Store(db)
+    assert s.get("a1")["origin"] == "" and s.latest_pending(origin="") ["id"] == "a1"
+    s.add("t", "s", 5, origin="telegram:1")
+
 
 def test_cross_process_race_real_threads(tmp_path):
     """Real clock + real threads: Undo from another 'process' wins."""

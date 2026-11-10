@@ -48,6 +48,9 @@ class Store:
                     detail TEXT
                 )"""
             )
+            cols = {r[1] for r in c.execute("PRAGMA table_info(actions)")}
+            if "origin" not in cols:  # added in 0.3.2: the chat a held action came from
+                c.execute("ALTER TABLE actions ADD COLUMN origin TEXT DEFAULT ''")
 
     @contextmanager
     def _conn(self):
@@ -59,13 +62,14 @@ class Store:
         finally:
             conn.close()
 
-    def add(self, tool: str, summary: str, window: float, session_id: str = "") -> str:
+    def add(self, tool: str, summary: str, window: float, session_id: str = "", origin: str = "") -> str:
         aid = uuid.uuid4().hex[:6]
         now = time.time()
         with self._conn() as c:
             c.execute(
-                "INSERT INTO actions VALUES (?,?,?,?,?,?,?,?)",
-                (aid, tool, summary, session_id, now, now + window, PENDING, None),
+                "INSERT INTO actions (id, tool, summary, session_id, created, due, status, detail, origin) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (aid, tool, summary, session_id, now, now + window, PENDING, None, origin or ""),
             )
         return aid
 
@@ -113,6 +117,7 @@ class Store:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def latest_pending(self) -> dict | None:
-        p = self.pending()
+    def latest_pending(self, origin: str | None = None) -> dict | None:
+        """Newest waiting action; with `origin`, only one held from that chat."""
+        p = [r for r in self.pending() if origin is None or (r.get("origin") or "") == origin]
         return p[-1] if p else None

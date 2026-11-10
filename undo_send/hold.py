@@ -13,6 +13,7 @@ from collections import deque
 from typing import Callable
 
 from .classify import Rules, classify, summarize
+from .origin import current_origin
 from .store import Store
 
 POLL_SECONDS = 0.25
@@ -65,7 +66,7 @@ class Holder:
 
         summary = summarize(tool_name, args, decision.label)
         session = str(kwargs.get("session_id") or kwargs.get("conversation_id") or "")
-        aid = self.store.add(tool_name, summary, window, session)
+        aid = self.store.add(tool_name, summary, window, session, current_origin())
 
         while True:
             row = self.store.get(aid)

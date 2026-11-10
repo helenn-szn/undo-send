@@ -1,5 +1,5 @@
 name: undo-send
-version: 0.3.1
+version: 0.3.2
 manifest_version: 2
 api_version: 1
 requires_hermes: ">=0.23.0"
@@ -44,3 +44,11 @@ config_schema:
     default: []
     label: Never hold these tools
     description: Tool names that always run immediately.
+  undo_senders:
+    type: list
+    default: []
+    label: Who can undo from chat
+    description: >-
+      Chat users allowed to cancel by replying "undo", as "platform:user_id"
+      (e.g. "telegram:123456789"). Empty turns chat undo off. Run /undo-send whoami
+      in the chat app to see your ID.
